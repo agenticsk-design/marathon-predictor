@@ -1,0 +1,36 @@
+{
+  "feature_names": [
+    "age",
+    "gender",
+    "weight_lbs",
+    "height_inches",
+    "weekly_mileage",
+    "long_run_miles",
+    "avg_pace_min_per_mile",
+    "runs_per_week",
+    "weeks_training",
+    "cross_training_hours",
+    "first_marathon",
+    "previous_marathons",
+    "half_marathon_pr_minutes",
+    "ten_k_pr_minutes",
+    "five_k_pr_minutes"
+  ],
+  "feature_importances": {
+    "age": 0.2805120461328814,
+    "gender": 0.04088346381766878,
+    "weight_lbs": 0.006257084870179262,
+    "height_inches": 0.009200790116020844,
+    "weekly_mileage": 0.028650811600732618,
+    "long_run_miles": 0.008167579847158804,
+    "avg_pace_min_per_mile": 0.24305253958610262,
+    "runs_per_week": 0.0014387325821690821,
+    "weeks_training": 0.003258988599026764,
+    "cross_training_hours": 0.0010397416500572733,
+    "first_marathon": 0.0002197549082641952,
+    "previous_marathons": 0.005473171504826194,
+    "half_marathon_pr_minutes": 0.3171138421327269,
+    "ten_k_pr_minutes": 0.043622358444565724,
+    "five_k_pr_minutes": 0.011109094207619529
+  }
+}

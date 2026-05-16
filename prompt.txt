@@ -1,0 +1,135 @@
+Build a full-stack web app called "Marathon Time Predictor" that forecasts marathon finish times based on runner training data and demographics.
+
+## Tech Stack
+- Frontend: React (Vite), Tailwind CSS
+- Backend: FastAPI (Python), scikit-learn
+- Model: GradientBoostingRegressor trained on synthetic marathon training data
+
+## File Structure
+marathon-predictor/
+  frontend/
+    src/
+      App.jsx
+      components/
+        RunnerForm.jsx
+        PredictionResult.jsx
+        PacingChart.jsx
+        TrainingLog.jsx
+      main.jsx
+    index.html
+    vite.config.js
+    tailwind.config.js
+    postcss.config.js
+    package.json
+  backend/
+    main.py
+    predictor.py
+    requirements.txt
+    model/
+      train.py
+      (marathon_model.pkl will be generated)
+  start.sh
+  README.md
+
+## Runner Input Form (multi-step, 3 steps)
+Step 1 - Demographics: Age, Gender (M/F/Non-binary), Weight (lbs), Height (ft + in)
+Step 2 - Training Data: Weekly mileage (avg last 12 weeks), Long run distance (miles), Avg easy pace (min/mile, e.g. 9.5), Runs per week, Weeks of consistent training, Cross training yes/no + hours/week
+Step 3 - Race History: First marathon yes/no, Number of previous marathons, Optional PRs: 5K time, 10K time, Half marathon time (input as mm:ss format, converted to minutes)
+
+## ML Model (backend/model/train.py)
+Generate 1500 synthetic runner samples. For each sample, randomly generate plausible values for all features. Compute target marathon finish time in minutes using:
+- Base time from weekly mileage (higher mileage = faster)
+- Adjust for avg pace (direct correlation)
+- Adjust for long run (higher = faster)
+- Apply Riegel formula if half marathon PR is provided: full_marathon = half_pr * 2^1.06
+- Apply age grading (runners 20-35 fastest, gradual slowdown after 40)
+- Apply gender factor (M slightly faster on average)
+- Add experience bonus (more marathons = slightly faster, first marathon penalty)
+- Add random noise
+Train GradientBoostingRegressor, save to backend/model/marathon_model.pkl using joblib.
+Also save feature names list to backend/model/feature_names.json.
+
+## Backend API (backend/main.py)
+FastAPI with CORS enabled for all origins.
+
+POST /predict accepts JSON:
+{
+  "age": int,
+  "gender": str,  // "M", "F", "NB"
+  "weight_lbs": float,
+  "height_inches": float,
+  "weekly_mileage": float,
+  "long_run_miles": float,
+  "avg_pace_min_per_mile": float,
+  "runs_per_week": int,
+  "weeks_training": int,
+  "cross_training_hours": float,
+  "first_marathon": bool,
+  "previous_marathons": int,
+  "half_marathon_pr_minutes": float or null,
+  "ten_k_pr_minutes": float or null,
+  "five_k_pr_minutes": float or null
+}
+
+Returns JSON:
+{
+  "predicted_minutes": float,
+  "predicted_time": "h:mm:ss",
+  "pace_per_mile": "mm:ss",
+  "confidence_low": "h:mm:ss",
+  "confidence_high": "h:mm:ss",
+  "vs_average": string,
+  "splits": [{"label": "5K", "time": "h:mm:ss"}, ...],
+  "top_features": [{"name": str, "importance": float}, ...]  // top 5
+}
+
+Splits at: 5K, 10K, 15K, 20K, Half (21.1K), 25K, 30K, 35K, 40K, Finish
+vs_average: compare to 4:29:53 (269.88 min), say "X:XX faster/slower than average"
+
+GET /health returns {"status": "ok"}
+
+## Frontend Details
+
+Use dark navy/blue color scheme (#0f172a background, #1e3a5f cards, #f97316 orange accents).
+Multi-step form with progress bar at top showing steps 1/2/3.
+Smooth fade-in animation on result reveal.
+Mobile responsive.
+
+PredictionResult component shows:
+- Big predicted time display
+- Confidence range
+- Pace per mile
+- vs average comparison badge
+- Splits table (label + time columns)
+- Bar chart of top features (use simple CSS bars, no chart library needed)
+
+TrainingLog component: a simple table where user can add rows (Week #, Mileage, Long Run, Key Workout note). Store in local state. Has "Add Week" button. No backend needed.
+
+## package.json dependencies needed:
+- react, react-dom
+- @vitejs/plugin-react
+- vite
+- tailwindcss, autoprefixer, postcss
+
+## requirements.txt:
+fastapi
+uvicorn
+scikit-learn
+numpy
+pandas
+joblib
+pydantic
+
+## start.sh
+#!/bin/bash
+echo "Starting Marathon Time Predictor..."
+cd backend && pip install -r requirements.txt -q && python model/train.py && uvicorn main:app --reload --port 8000 &
+cd frontend && npm install && npm run dev &
+wait
+
+## IMPORTANT FINAL STEPS:
+1. Create all files
+2. Run: cd /Users/skanda/Projects/marathon-predictor/backend && pip install -r requirements.txt && python model/train.py
+3. Run: cd /Users/skanda/Projects/marathon-predictor/frontend && npm install
+4. Confirm the model pickle was created at backend/model/marathon_model.pkl
+5. When done, run: openclaw system event --text "Done: Marathon Time Predictor built at ~/Projects/marathon-predictor — run ./start.sh to launch" --mode now

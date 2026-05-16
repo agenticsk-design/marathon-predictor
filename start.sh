@@ -1,12 +1,14 @@
 #!/bin/bash
 set -e
 
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 echo "🏃 Marathon Time Predictor — Starting up..."
 echo ""
 
 # Backend
 echo "📦 Installing Python dependencies..."
-cd "$(dirname "$0")/backend"
+cd "$ROOT_DIR/backend"
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt -q
@@ -21,7 +23,7 @@ BACKEND_PID=$!
 # Frontend
 echo ""
 echo "📦 Installing frontend dependencies..."
-cd "$(dirname "$0")/frontend"
+cd "$ROOT_DIR/frontend"
 npm install --silent
 
 echo "⚡ Starting React frontend on http://localhost:3000 ..."

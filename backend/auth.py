@@ -1,6 +1,6 @@
 import os, time, sqlite3, secrets, urllib.request, urllib.error, json
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
@@ -12,7 +12,6 @@ RESET_TOKEN_EXPIRE_SECONDS = 60 * 60  # 1 hour
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 APP_URL        = os.environ.get("APP_URL", "https://marathon-predictor.netlify.app")
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
 
 DB_PATH = os.environ.get("DB_PATH", "/data/marathon.db")
@@ -47,10 +46,10 @@ def init_users_table():
     conn.close()
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 def create_token(user_id: int, email: str) -> str:
     payload = {

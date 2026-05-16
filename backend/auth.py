@@ -1,5 +1,4 @@
-import os, time, sqlite3, secrets, smtplib
-from email.mime.text import MIMEText
+import os, time, sqlite3, secrets, urllib.request, urllib.error, json
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import HTTPException, Depends, status
@@ -10,11 +9,8 @@ ALGORITHM = "HS256"
 TOKEN_EXPIRE_SECONDS = 60 * 60 * 24 * 30  # 30 days
 RESET_TOKEN_EXPIRE_SECONDS = 60 * 60  # 1 hour
 
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASS = os.environ.get("SMTP_PASS", "")
-APP_URL   = os.environ.get("APP_URL", "https://marathon-predictor.netlify.app")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+APP_URL        = os.environ.get("APP_URL", "https://marathon-predictor.netlify.app")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -95,8 +91,12 @@ def create_reset_token(user_id: int) -> str:
     return token
 
 def send_reset_email(to_email: str, token: str):
-    reset_url = f"{APP_URL}/reset-password?token={token}"
-    body = f"""Hi,
+    reset_url = f"{APP_URL}?token={token}"
+    payload = {
+        "from": "Marathon Predictor <onboarding@resend.dev>",
+        "to": [to_email],
+        "subject": "Reset your Marathon Predictor password",
+        "text": f"""Hi,
 
 You requested a password reset for your Marathon Time Predictor account.
 
@@ -107,17 +107,32 @@ Click the link below to set a new password (valid for 1 hour):
 If you didn't request this, you can safely ignore this email.
 
 — Marathon Time Predictor
+""",
+        "html": f"""
+<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+  <h2 style="color:#f97316">🏃 Marathon Time Predictor</h2>
+  <p>You requested a password reset.</p>
+  <p>Click the button below to set a new password. This link is valid for <strong>1 hour</strong>.</p>
+  <a href="{reset_url}"
+     style="display:inline-block;margin:16px 0;padding:12px 24px;background:#f97316;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold">
+    Reset Password
+  </a>
+  <p style="color:#888;font-size:13px">If you didn't request this, you can safely ignore this email.</p>
+</div>
 """
-    msg = MIMEText(body)
-    msg["Subject"] = "Reset your Marathon Predictor password"
-    msg["From"] = SMTP_USER
-    msg["To"] = to_email
-
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-        server.ehlo()
-        server.starttls()
-        server.login(SMTP_USER, SMTP_PASS)
-        server.sendmail(SMTP_USER, to_email, msg.as_string())
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())
 
 def validate_reset_token(token: str):
     """Returns user row if token is valid, raises HTTPException otherwise."""

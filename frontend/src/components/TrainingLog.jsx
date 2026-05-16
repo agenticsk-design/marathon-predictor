@@ -1,25 +1,99 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+// Generate or retrieve a stable session ID for this browser
+function getSessionId() {
+  let id = localStorage.getItem('marathon_session_id')
+  if (!id) {
+    id = 'session_' + Math.random().toString(36).slice(2) + Date.now()
+    localStorage.setItem('marathon_session_id', id)
+  }
+  return id
+}
 
 export default function TrainingLog() {
   const [rows, setRows] = useState([
     { week: 1, mileage: '', long_run: '', key_workout: '' },
   ])
+  const [status, setStatus] = useState(null) // 'saving' | 'saved' | 'error' | 'loading'
+  const sessionId = useRef(getSessionId())
+  const saveTimer = useRef(null)
+
+  // Load existing log on mount
+  useEffect(() => {
+    setStatus('loading')
+    fetch(`${API_URL}/training-log/${sessionId.current}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.rows && data.rows.length > 0) {
+          setRows(data.rows.map(r => ({
+            week: r.week,
+            mileage: r.mileage ?? '',
+            long_run: r.long_run ?? '',
+            key_workout: r.key_workout ?? '',
+          })))
+        }
+        setStatus(null)
+      })
+      .catch(() => setStatus(null))
+  }, [])
+
+  // Auto-save 1s after last change
+  function triggerSave(updatedRows) {
+    clearTimeout(saveTimer.current)
+    setStatus('saving')
+    saveTimer.current = setTimeout(() => {
+      fetch(`${API_URL}/training-log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId.current,
+          rows: updatedRows.map(r => ({
+            week: r.week,
+            mileage: parseFloat(r.mileage) || null,
+            long_run: parseFloat(r.long_run) || null,
+            key_workout: r.key_workout || null,
+          })),
+        }),
+      })
+        .then(r => r.ok ? setStatus('saved') : setStatus('error'))
+        .catch(() => setStatus('error'))
+        .finally(() => setTimeout(() => setStatus(null), 2000))
+    }, 1000)
+  }
 
   function addRow() {
-    setRows(r => [...r, { week: r.length + 1, mileage: '', long_run: '', key_workout: '' }])
+    const updated = [...rows, { week: rows.length + 1, mileage: '', long_run: '', key_workout: '' }]
+    setRows(updated)
+    triggerSave(updated)
   }
 
   function updateRow(i, field, value) {
-    setRows(r => r.map((row, idx) => idx === i ? { ...row, [field]: value } : row))
+    const updated = rows.map((row, idx) => idx === i ? { ...row, [field]: value } : row)
+    setRows(updated)
+    triggerSave(updated)
   }
 
   function deleteRow(i) {
-    setRows(r => r.filter((_, idx) => idx !== i).map((row, idx) => ({ ...row, week: idx + 1 })))
+    const updated = rows.filter((_, idx) => idx !== i).map((row, idx) => ({ ...row, week: idx + 1 }))
+    setRows(updated)
+    triggerSave(updated)
   }
 
   const totalMileage = rows.reduce((sum, r) => sum + (parseFloat(r.mileage) || 0), 0)
 
   const inputClass = 'w-full bg-[#0f172a] border border-slate-700 rounded px-2 py-1.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-orange-500 transition-colors'
+
+  const statusEl = status === 'loading'
+    ? <span className="text-slate-400 text-xs">Loading…</span>
+    : status === 'saving'
+    ? <span className="text-slate-400 text-xs">Saving…</span>
+    : status === 'saved'
+    ? <span className="text-green-400 text-xs">✓ Saved</span>
+    : status === 'error'
+    ? <span className="text-red-400 text-xs">⚠ Save failed</span>
+    : null
 
   return (
     <div className="bg-[#1e293b] rounded-2xl p-6 shadow-xl border border-slate-700">
@@ -31,6 +105,7 @@ export default function TrainingLog() {
         <div className="text-right">
           <div className="text-orange-400 font-bold text-xl">{totalMileage.toFixed(1)}</div>
           <div className="text-slate-500 text-xs">total miles logged</div>
+          <div className="mt-1">{statusEl}</div>
         </div>
       </div>
 
@@ -97,7 +172,9 @@ export default function TrainingLog() {
         + Add Week
       </button>
 
-      <p className="mt-4 text-xs text-slate-600 text-center">Data is stored locally in your browser session.</p>
+      <p className="mt-4 text-xs text-slate-600 text-center">
+        Data is saved to the cloud and restored when you return.
+      </p>
     </div>
   )
 }

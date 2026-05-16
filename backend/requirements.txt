@@ -5,3 +5,5 @@ numpy
 pandas
 joblib
 pydantic
+python-jose[cryptography]
+passlib[bcrypt]

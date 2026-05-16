@@ -1,8 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from predictor import predict
+from auth import (
+    get_db, init_users_table, hash_password, verify_password,
+    create_token, get_current_user
+)
 import sqlite3, os, time
 
 app = FastAPI(title="Marathon Time Predictor API")
@@ -15,27 +19,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Database setup ---
-
-DB_PATH = os.environ.get("DB_PATH", "/data/marathon.db")
-
-def get_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+# --- DB init ---
 
 def init_db():
+    init_users_table()
     conn = get_db()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS training_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
             week INTEGER NOT NULL,
             mileage REAL,
             long_run REAL,
             key_workout TEXT,
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
     conn.commit()
@@ -45,11 +43,21 @@ def init_db():
 def startup():
     init_db()
 
-# --- Models ---
+# --- Auth models ---
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+# --- Prediction model ---
 
 class RunnerInput(BaseModel):
     age: int
-    gender: str  # "M", "F", "NB"
+    gender: str
     weight_lbs: float
     height_inches: float
     weekly_mileage: float
@@ -64,6 +72,8 @@ class RunnerInput(BaseModel):
     ten_k_pr_minutes: Optional[float] = None
     five_k_pr_minutes: Optional[float] = None
 
+# --- Training log models ---
+
 class TrainingWeek(BaseModel):
     week: int
     mileage: Optional[float] = None
@@ -71,7 +81,6 @@ class TrainingWeek(BaseModel):
     key_workout: Optional[str] = None
 
 class TrainingLogSave(BaseModel):
-    session_id: str
     rows: List[TrainingWeek]
 
 # --- Routes ---
@@ -79,6 +88,42 @@ class TrainingLogSave(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.post("/auth/register")
+def register(body: RegisterRequest):
+    conn = get_db()
+    try:
+        existing = conn.execute("SELECT id FROM users WHERE email = ?", (body.email.lower(),)).fetchone()
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        if len(body.password) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        hashed = hash_password(body.password)
+        cursor = conn.execute(
+            "INSERT INTO users (email, hashed_password, created_at) VALUES (?, ?, ?)",
+            (body.email.lower(), hashed, int(time.time()))
+        )
+        conn.commit()
+        token = create_token(cursor.lastrowid, body.email.lower())
+        return {"token": token, "email": body.email.lower()}
+    finally:
+        conn.close()
+
+@app.post("/auth/login")
+def login(body: LoginRequest):
+    conn = get_db()
+    try:
+        user = conn.execute("SELECT * FROM users WHERE email = ?", (body.email.lower(),)).fetchone()
+        if not user or not verify_password(body.password, user["hashed_password"]):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        token = create_token(user["id"], user["email"])
+        return {"token": token, "email": user["email"]}
+    finally:
+        conn.close()
+
+@app.get("/auth/me")
+def me(current_user=Depends(get_current_user)):
+    return {"id": current_user["id"], "email": current_user["email"]}
 
 @app.post("/predict")
 def predict_marathon(runner: RunnerInput):
@@ -89,40 +134,37 @@ def predict_marathon(runner: RunnerInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/training-log")
-def save_training_log(payload: TrainingLogSave):
-    """Save (replace) a full training log for a session."""
+def save_training_log(payload: TrainingLogSave, current_user=Depends(get_current_user)):
     conn = get_db()
     try:
-        conn.execute("DELETE FROM training_logs WHERE session_id = ?", (payload.session_id,))
+        conn.execute("DELETE FROM training_logs WHERE user_id = ?", (current_user["id"],))
         now = int(time.time())
         conn.executemany(
-            "INSERT INTO training_logs (session_id, week, mileage, long_run, key_workout, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            [(payload.session_id, r.week, r.mileage, r.long_run, r.key_workout, now) for r in payload.rows]
+            "INSERT INTO training_logs (user_id, week, mileage, long_run, key_workout, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            [(current_user["id"], r.week, r.mileage, r.long_run, r.key_workout, now) for r in payload.rows]
         )
         conn.commit()
         return {"status": "saved", "rows": len(payload.rows)}
     finally:
         conn.close()
 
-@app.get("/training-log/{session_id}")
-def get_training_log(session_id: str):
-    """Retrieve training log for a session."""
+@app.get("/training-log")
+def get_training_log(current_user=Depends(get_current_user)):
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT week, mileage, long_run, key_workout FROM training_logs WHERE session_id = ? ORDER BY week",
-            (session_id,)
+            "SELECT week, mileage, long_run, key_workout FROM training_logs WHERE user_id = ? ORDER BY week",
+            (current_user["id"],)
         ).fetchall()
-        return {"session_id": session_id, "rows": [dict(r) for r in rows]}
+        return {"rows": [dict(r) for r in rows]}
     finally:
         conn.close()
 
-@app.delete("/training-log/{session_id}")
-def delete_training_log(session_id: str):
-    """Delete all training log entries for a session."""
+@app.delete("/training-log")
+def delete_training_log(current_user=Depends(get_current_user)):
     conn = get_db()
     try:
-        conn.execute("DELETE FROM training_logs WHERE session_id = ?", (session_id,))
+        conn.execute("DELETE FROM training_logs WHERE user_id = ?", (current_user["id"],))
         conn.commit()
         return {"status": "deleted"}
     finally:

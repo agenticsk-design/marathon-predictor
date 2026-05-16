@@ -2,28 +2,22 @@ import { useState, useEffect, useRef } from 'react'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-// Generate or retrieve a stable session ID for this browser
-function getSessionId() {
-  let id = localStorage.getItem('marathon_session_id')
-  if (!id) {
-    id = 'session_' + Math.random().toString(36).slice(2) + Date.now()
-    localStorage.setItem('marathon_session_id', id)
-  }
-  return id
-}
-
-export default function TrainingLog() {
+export default function TrainingLog({ token }) {
   const [rows, setRows] = useState([
     { week: 1, mileage: '', long_run: '', key_workout: '' },
   ])
-  const [status, setStatus] = useState(null) // 'saving' | 'saved' | 'error' | 'loading'
-  const sessionId = useRef(getSessionId())
+  const [status, setStatus] = useState(null)
   const saveTimer = useRef(null)
 
-  // Load existing log on mount
+  const authHeaders = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`,
+  }
+
+  // Load log on mount
   useEffect(() => {
     setStatus('loading')
-    fetch(`${API_URL}/training-log/${sessionId.current}`)
+    fetch(`${API_URL}/training-log`, { headers: authHeaders })
       .then(r => r.json())
       .then(data => {
         if (data.rows && data.rows.length > 0) {
@@ -39,16 +33,14 @@ export default function TrainingLog() {
       .catch(() => setStatus(null))
   }, [])
 
-  // Auto-save 1s after last change
   function triggerSave(updatedRows) {
     clearTimeout(saveTimer.current)
     setStatus('saving')
     saveTimer.current = setTimeout(() => {
       fetch(`${API_URL}/training-log`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders,
         body: JSON.stringify({
-          session_id: sessionId.current,
           rows: updatedRows.map(r => ({
             week: r.week,
             mileage: parseFloat(r.mileage) || null,
@@ -82,17 +74,12 @@ export default function TrainingLog() {
   }
 
   const totalMileage = rows.reduce((sum, r) => sum + (parseFloat(r.mileage) || 0), 0)
-
   const inputClass = 'w-full bg-[#0f172a] border border-slate-700 rounded px-2 py-1.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-orange-500 transition-colors'
 
-  const statusEl = status === 'loading'
-    ? <span className="text-slate-400 text-xs">Loading…</span>
-    : status === 'saving'
-    ? <span className="text-slate-400 text-xs">Saving…</span>
-    : status === 'saved'
-    ? <span className="text-green-400 text-xs">✓ Saved</span>
-    : status === 'error'
-    ? <span className="text-red-400 text-xs">⚠ Save failed</span>
+  const statusEl = status === 'loading' ? <span className="text-slate-400 text-xs">Loading…</span>
+    : status === 'saving' ? <span className="text-slate-400 text-xs">Saving…</span>
+    : status === 'saved' ? <span className="text-green-400 text-xs">✓ Saved</span>
+    : status === 'error' ? <span className="text-red-400 text-xs">⚠ Save failed</span>
     : null
 
   return (
@@ -127,37 +114,23 @@ export default function TrainingLog() {
                   <span className="text-slate-400 font-mono text-xs">W{row.week}</span>
                 </td>
                 <td className="py-2 pr-2">
-                  <input
-                    type="number" min="0" max="150" placeholder="e.g. 40"
-                    className={inputClass}
-                    value={row.mileage}
-                    onChange={e => updateRow(i, 'mileage', e.target.value)}
-                  />
+                  <input type="number" min="0" max="150" placeholder="e.g. 40"
+                    className={inputClass} value={row.mileage}
+                    onChange={e => updateRow(i, 'mileage', e.target.value)} />
                 </td>
                 <td className="py-2 pr-2">
-                  <input
-                    type="number" min="0" max="30" placeholder="e.g. 18"
-                    className={inputClass}
-                    value={row.long_run}
-                    onChange={e => updateRow(i, 'long_run', e.target.value)}
-                  />
+                  <input type="number" min="0" max="30" placeholder="e.g. 18"
+                    className={inputClass} value={row.long_run}
+                    onChange={e => updateRow(i, 'long_run', e.target.value)} />
                 </td>
                 <td className="py-2 pr-2">
-                  <input
-                    type="text" placeholder="e.g. 8×800m @ 5K pace"
-                    className={inputClass}
-                    value={row.key_workout}
-                    onChange={e => updateRow(i, 'key_workout', e.target.value)}
-                  />
+                  <input type="text" placeholder="e.g. 8×800m @ 5K pace"
+                    className={inputClass} value={row.key_workout}
+                    onChange={e => updateRow(i, 'key_workout', e.target.value)} />
                 </td>
                 <td className="py-2">
-                  <button
-                    onClick={() => deleteRow(i)}
-                    className="text-slate-600 hover:text-red-400 transition-colors text-lg leading-none"
-                    title="Delete row"
-                  >
-                    ×
-                  </button>
+                  <button onClick={() => deleteRow(i)}
+                    className="text-slate-600 hover:text-red-400 transition-colors text-lg leading-none">×</button>
                 </td>
               </tr>
             ))}
@@ -165,15 +138,13 @@ export default function TrainingLog() {
         </table>
       </div>
 
-      <button
-        onClick={addRow}
-        className="mt-4 w-full py-2 border border-dashed border-slate-600 rounded-xl text-slate-400 hover:text-white hover:border-orange-500 text-sm transition-colors"
-      >
+      <button onClick={addRow}
+        className="mt-4 w-full py-2 border border-dashed border-slate-600 rounded-xl text-slate-400 hover:text-white hover:border-orange-500 text-sm transition-colors">
         + Add Week
       </button>
 
       <p className="mt-4 text-xs text-slate-600 text-center">
-        Data is saved to the cloud and restored when you return.
+        Data is saved to your account and restored when you log back in.
       </p>
     </div>
   )

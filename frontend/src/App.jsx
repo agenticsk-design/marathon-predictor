@@ -3,20 +3,33 @@ import RunnerForm from './components/RunnerForm'
 import PredictionResult from './components/PredictionResult'
 import TrainingLog from './components/TrainingLog'
 import AuthForm from './components/AuthForm'
+import ForgotPassword from './components/ForgotPassword'
+import ResetPassword from './components/ResetPassword'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+function getResetToken() {
+  const params = new URLSearchParams(window.location.search)
+  return params.get('token')
+}
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem('marathon_token'))
   const [email, setEmail] = useState(() => localStorage.getItem('marathon_email') || '')
+  const [screen, setScreen] = useState(() => getResetToken() ? 'reset' : 'login')
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [tab, setTab] = useState('predict')
 
+  const resetToken = getResetToken()
+
   function handleAuth(newToken, newEmail) {
     setToken(newToken)
     setEmail(newEmail)
+    // Clear the ?token= param from URL after successful reset
+    window.history.replaceState({}, '', window.location.pathname)
+    setScreen('app')
   }
 
   function handleLogout() {
@@ -25,6 +38,7 @@ export default function App() {
     setToken(null)
     setEmail('')
     setResult(null)
+    setScreen('login')
   }
 
   async function handleSubmit(formData) {
@@ -47,10 +61,20 @@ export default function App() {
     }
   }
 
-  if (!token) {
-    return <AuthForm onAuth={handleAuth} />
+  // Reset password flow (arrived via email link)
+  if (resetToken && screen !== 'app') {
+    return <ResetPassword token={resetToken} onAuth={handleAuth} />
   }
 
+  // Not logged in flows
+  if (!token) {
+    if (screen === 'forgot') {
+      return <ForgotPassword onBack={() => setScreen('login')} />
+    }
+    return <AuthForm onAuth={handleAuth} onForgotPassword={() => setScreen('forgot')} />
+  }
+
+  // Main app
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-100">
       <header className="border-b border-slate-700 bg-[#0f172a] sticky top-0 z-10">

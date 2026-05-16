@@ -5,7 +5,8 @@ from typing import Optional, List
 from predictor import predict
 from auth import (
     get_db, init_users_table, hash_password, verify_password,
-    create_token, get_current_user
+    create_token, get_current_user,
+    create_reset_token, send_reset_email, validate_reset_token, apply_reset_token
 )
 import sqlite3, os, time
 
@@ -52,6 +53,13 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 # --- Prediction model ---
 
@@ -124,6 +132,29 @@ def login(body: LoginRequest):
 @app.get("/auth/me")
 def me(current_user=Depends(get_current_user)):
     return {"id": current_user["id"], "email": current_user["email"]}
+
+@app.post("/auth/forgot-password")
+def forgot_password(body: ForgotPasswordRequest):
+    """Always returns 200 to avoid leaking which emails are registered."""
+    conn = get_db()
+    try:
+        user = conn.execute("SELECT * FROM users WHERE email = ?", (body.email.lower(),)).fetchone()
+    finally:
+        conn.close()
+    if user:
+        token = create_reset_token(user["id"])
+        try:
+            send_reset_email(body.email.lower(), token)
+        except Exception as e:
+            # Log but don't expose SMTP errors to the client
+            print(f"[SMTP ERROR] {e}")
+    return {"status": "If that email is registered, a reset link has been sent."}
+
+@app.post("/auth/reset-password")
+def reset_password(body: ResetPasswordRequest):
+    user = apply_reset_token(body.token, body.new_password)
+    token = create_token(user["user_id"], user["email"])
+    return {"status": "Password updated", "token": token, "email": user["email"]}
 
 @app.post("/predict")
 def predict_marathon(runner: RunnerInput):

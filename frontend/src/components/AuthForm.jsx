@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-export default function AuthForm({ onAuth }) {
+export default function AuthForm({ onAuth, onForgotPassword }) {
   const [mode, setMode] = useState('login') // 'login' | 'register'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -92,6 +92,13 @@ export default function AuthForm({ onAuth }) {
             >
               {loading ? '...' : mode === 'login' ? 'Log In' : 'Create Account'}
             </button>
+
+            {mode === 'login' && (
+              <button type="button" onClick={onForgotPassword}
+                className="w-full text-slate-500 hover:text-slate-300 text-sm transition-colors text-center">
+                Forgot your password?
+              </button>
+            )}
           </form>
         </div>
 
